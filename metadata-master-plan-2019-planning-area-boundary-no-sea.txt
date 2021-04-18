@@ -1,0 +1,43 @@
+# Metadata for Master Plan 2019 Planning Area Boundary
+---
+Identifier: '40267ab6-7c08-45c4-b777-a3b10e68f1c8'
+Name: 'master-plan-2019-planning-area-boundary-no-sea'
+Title: 'Master Plan 2019 Planning Area Boundary'
+Description:
+  - 'Indicative polygon of planning area boundary.'
+  - ''
+  - 'To facilitate urban planning, the Urban Redevelopment Authority (URA) divides
+    Singapore into regions, planning areas and subzones.'
+  - ''
+  - 'The Planning Regions are divided into smaller Planning Areas. Each Planning Area
+    have a population of about 150,000 and served by a town centre and several neighbourhood
+    commercial/shopping centres.'
+  - ''
+  - 'The Master Plan is a forward looking guiding plan for Singapore''s development
+    in the medium term over the next 10 to 15 years and the planning boundaries may
+    not coincide with existing developments for some areas.'
+Topics:
+  - 'Infrastructure'
+Keywords:
+  - 'MP19 Planning Area'
+  - 'MP2019 Planning Area'
+  - 'Master Plan 2019 Planning Boundaries'
+Publisher:
+  Name: 'Urban Redevelopment Authority'
+  Admin 1:
+    Name: 'Pamela Poh'
+    Department: 'URBAN REDEVELOPMENT AUTHORITY'
+    Email: 'pamela_poh@ura.gov.sg'
+Sources:
+  - 'Urban Redevelopment Authority'
+License: 'https://data.gov.sg/open-data-licence'
+Frequency: 'Ad-hoc'
+Last Updated: '2020-05-26T09:41:14.750173'
+Resources:
+  -
+    Identifier: '06155d17-a1f2-44e8-926c-768bdba6e621'
+    Name: 'planning-boundary-area.kml'
+    Title: 'Planning Boundary Area'
+    Url: 'https://data.gov.sg/dataset/40267ab6-7c08-45c4-b777-a3b10e68f1c8/resource/06155d17-a1f2-44e8-926c-768bdba6e621/download/planning-boundary-area.kml'
+    Format: 'KML'
+    Last Updated: '2020-05-26T09:40:42.514283'
