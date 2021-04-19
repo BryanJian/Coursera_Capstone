@@ -60,3 +60,27 @@ for poly_i in geoinc["geometry"]:
         plot_pop_points(incmap, 10, poly_i, "Blue")
 
 incmap
+
+ # %%
+ incdf_prep = incdf.rename(columns=brack_dict_r)
+ 
+brack_dict = {
+0: "Below $1,000",
+1: "$1,000 - $1,499",
+2: "$1,500 - $1,999",
+3: "$2,000 - $2,499",
+4: "$2,500 - $2,999",
+5: "$3,000 - $3,999",
+6: "$4,000 - $4,999",
+7: "$5,000 - $5,999",
+8: "$6,000 - $6,999",
+9: "$7,000 - $7,999",
+10: "$8,000 - $8,999",
+11: "$9,000 - $9,999",
+12: "$10,000 - $10,999",
+13: "$11,000 - $11,999",
+14: "$12,000 & Over",
+}
+
+brack_dict_r = {value : key for (key, value) in brack_dict.items()}
+

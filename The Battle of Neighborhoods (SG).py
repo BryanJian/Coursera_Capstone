@@ -1,60 +1,28 @@
 # %%
 import folium
 import pandas as pd
+import numpy as np
+from matplotlib import cm
+from matplotlib.colors import rgb2hex
+from matplotlib.colors import Normalize
 import geopandas as gpd
 from shapely.geometry.collection import GeometryCollection
 from shapely.geometry.multipolygon import MultiPolygon
 
-import random
-from shapely.geometry import Point
-
-# %%
+# Geodata Wrangle
 sing_geo = r"MP14_PLNG_AREA_NO_SEA_PL.geojson"  # Geodata
-
-# Population Data
-popsheet = pd.read_excel(
-    "t1-9.xls", sheet_name="T7(Total)"
-)  # Read Planning Area population
-
-# Dropping empty rows
-popdf = popsheet.dropna(how="all", thresh=2)
-popdf = popdf.dropna(how="all", thresh=2, axis=1)
-
-# Making header
-popdf.columns = popdf.iloc[0]
-popdf = popdf[1:]
-
-# Removing redundant headers, columns and rows
-popdf = popdf[popdf["Planning Area"] != "Planning Area"]
-popdf.dropna(inplace=True)
-popdf = popdf[["Planning Area", "Total"]]
-popdf = popdf[~popdf["Planning Area"].str.contains("Total")]
-
-# Convert Planning Area Names to all-caps
-popdf["Planning Area"] = popdf["Planning Area"].str.upper()
-popdf = popdf.rename(columns={"Total": "Population"})
-
-popdf.replace({"-": 0}, inplace=True)
-popdf = popdf.reset_index(drop=True)
 
 # GeoDataFrame
 geodf = gpd.read_file(sing_geo)
-geodf = geodf[["id", "name", "geometry"]]
+geodf = geodf[["name", "id", "geometry"]]
 geodf = geodf.rename(columns={"name": "Planning Area"})
 
-# Conversion of GeometryCollection to Multipolygon to support island on map
+# Conversion of GeometryCollection to Multipolygon to support PAs with islands
 geodf["geometry"] = [
     MultiPolygon([feature]) if isinstance(feature, GeometryCollection) else feature
     for feature in geodf["geometry"]
 ]
 
-# Merging DFs
-geopop = geodf.merge(popdf, on="Planning Area")
-
-popdf.to_csv("SG_planningarea_pop.csv", index=False)
-geopop.to_csv("SG_planningarea_geopop.csv", index=False)
-
-# %%
 # Tooltip style functions
 style_function = lambda x: {
     "fillColor": "#ffffff",
@@ -68,6 +36,13 @@ highlight_function = lambda x: {
     "fillOpacity": 0.50,
     "weight": 0.1,
 }
+
+# %%
+# Population Data Wrangle
+popdf = pd.read_csv("SG_planningarea_pop.csv")  # Population data
+# Merging DFs and saving
+geopop = geodf.merge(popdf, on="Planning Area")
+geopop.to_csv("SG_planningarea_geopop.csv", index=False)
 
 # %%
 # Population Map plotting
@@ -108,122 +83,137 @@ folium.LayerControl().add_to(pop_map)
 pop_map
 
 # %%
-# Income Data
-incsheet = pd.read_excel("t143-147.xls", sheet_name="T145")  # Read Planning Area income
+# Income Data Wrangle
+fincdf = pd.read_csv("SG_planningarea_inc.csv")
+incdf_cs = pd.read_csv("SG_planningarea_inc.csv")
+incdf_cs.loc[:, fincdf.columns != "Planning Area"] = incdf_cs.loc[
+    :, fincdf.columns != "Planning Area"
+].cumsum(axis=1)
 
-# Dropping empty columns and rows
-incdf = incsheet.dropna(how="all", thresh=3)
-incdf = incdf.dropna(axis=1)
+# Cumulative Planning Area Median Pop
+incdf_cs["cum_med_pop"] = fincdf.sum(axis=1, numeric_only=True) / 2
 
-# Making Header
-incdf.columns = incdf.iloc[0]
-incdf = incdf[1:]
+# Identifying median income bracket by Planning Area
+inc_brackets = [
+    "Below $1,000",
+    "$1,000 - $1,499",
+    "$1,500 - $1,999",
+    "$2,000 - $2,499",
+    "$2,500 - $2,999",
+    "$3,000 - $3,999",
+    "$4,000 - $4,999",
+    "$5,000 - $5,999",
+    "$6,000 - $6,999",
+    "$7,000 - $7,999",
+    "$8,000 - $8,999",
+    "$9,000 - $9,999",
+    "$10,000 - $10,999",
+    "$11,000 - $11,999",
+    "$12,000 & Over",
+]
 
-incdf = incdf[~incdf["Planning Area"].str.contains("Total")]
-incdf = incdf[~incdf["Planning Area"].str.contains("Others")]
-incdf = incdf.drop(columns="Total")
+med_inc_bracket = []
+for index, row in incdf_cs.iterrows():
+    med_inc_bracket.append(row[inc_brackets].gt(row["cum_med_pop"]).idxmax())
 
-incdf["Planning Area"] = incdf["Planning Area"].str.upper()
+incdf_cs["med_inc_bracket"] = med_inc_bracket
 
-incdf = incdf.reset_index(drop=True)
+brack_mid = {
+    "Below $1,000": 500,
+    "$1,000 - $1,499": 1250,
+    "$1,500 - $1,999": 1750,
+    "$2,000 - $2,499": 2250,
+    "$2,500 - $2,999": 2750,
+    "$3,000 - $3,999": 3500,
+    "$4,000 - $4,999": 4500,
+    "$5,000 - $5,999": 5500,
+    "$6,000 - $6,999": 6500,
+    "$7,000 - $7,999": 7500,
+    "$8,000 - $8,999": 8500,
+    "$9,000 - $9,999": 9500,
+    "$10,000 - $10,999": 10500,
+    "$11,000 - $11,999": 11500,
+    "$12,000 & Over": 12500,
+}
 
-incdf.to_csv("SG_planningarea_inc.csv", index=False)
+incdf_cs["median_inc"] = incdf_cs["med_inc_bracket"].map(brack_mid)
 
-# %%
 # Merging DFs
-geoinc = geodf.merge(incdf, on="Planning Area")
-geoinc.to_csv("SG_planningarea_geoinc.csv", index=False)
+incdf = incdf_cs[["Planning Area", "median_inc"]]
+geoinc = geodf.merge(incdf, on="Planning Area", how="left")
+geoinc.to_csv("SG_planningarea_geoinc_cs.csv", index=False)
 
 # %%
-def generate_random(number, polygon):
-    points = []
-    minx, miny, maxx, maxy = polygon.bounds
-    while len(points) < number:
-        pnt = Point(random.uniform(minx, maxx), random.uniform(miny, maxy))
-        if polygon.contains(pnt):
-            points.append(pnt)
-    return points
+# Plotting Population and Income Map
+# Merging population and income data
+geopopinc = geopop.merge(
+    incdf[["Planning Area", "median_inc"]], on="Planning Area", how="left"
+)
 
-
-# %%
-testpoints = generate_random(50, polygon=geopop["geometry"][1])
-
-testmap = folium.Map(
+# Population Map plotting
+popinc_map = folium.Map(
     location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11
 )
 
-folium.GeoJson(
-    geopop["geometry"],
-    style_function=lambda x: {
-        "fillColor": "#ffffff",
-        "color": "#000000",
-        "fillOpacity": 0,
-        "weight": 1,
-    },
-).add_to(testmap)
+# Defining Bubble colours
+norm = Normalize(vmin=0, vmax=12500.0)  # Normalisation required
+color_mapper = cm.ScalarMappable(cmap=cm.YlOrRd, norm=norm)
+rgb_values = color_mapper.to_rgba(geopopinc["median_inc"])[
+    :, :3
+]  # keep rgb and drop the "a" column
+colors = [rgb2hex(rgb) for rgb in rgb_values]
 
-for i, point_i in enumerate(testpoints, 0):
+geopopinc["colours"] = colors
+geopopinc["colours"].replace({"#000000": np.nan}, inplace=True)
+
+# Plot Bubbles
+for index, row in geopopinc.iterrows():
+    lat = list(row["geometry"].centroid.coords)[0][1]
+    lng = list(row["geometry"].centroid.coords)[0][0]
+    colour = row["colours"]
+
     folium.CircleMarker(
-        [tuple(point_i.coords)[0][1], tuple(point_i.coords)[0][0]],
-        radius=1,
-        color="Blue",
-        opacity=0.5,
-        fill=False,
-    ).add_to(testmap)
+        location=[lat, lng],
+        radius=row["median_inc"] / 1200,
+        color=colour,
+        fill_color=colour,
+        fill_opacity=1,
+    ).add_to(popinc_map)
 
-testmap
-# %%
-def plot_pop_points(map_obj, number, polygon, color):
-    """Generates random point objects for a polygon and plots them onto a Folium map."""
-    points = []
-    minx, miny, maxx, maxy = polygon.bounds
-    while len(points) < number:
-        pnt = Point(random.uniform(minx, maxx), random.uniform(miny, maxy))
-        if polygon.contains(pnt):
-            points.append(pnt)
+# Population Population Choropleth
+folium.Choropleth(
+    geopopinc,
+    name="Population by Planning Area (2015)",
+    legend_name="Population (as of 2015)",
+    data=geopopinc,
+    columns=["Planning Area", "Population"],
+    key_on="feature.properties.Planning Area",
+    fill_color="Blues",
+    fill_opacity=1,
+    line_opacity=0.2,
+).add_to(popinc_map)
 
-    for i, point_i in enumerate(points, 0):
-        folium.CircleMarker(
-            [tuple(point_i.coords)[0][1], tuple(point_i.coords)[0][0]],
-            radius=1,
-            color=color,
-            opacity=0.5,
-            fill=False,
-        ).add_to(map_obj)
-
-
-# %%
-incmap = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
-
-folium.GeoJson(
-    geoinc["geometry"],
-    style_function=lambda x: {
-        "fillColor": "#ffffff",
-        "color": "#000000",
-        "fillOpacity": 0,
-        "weight": 1,
-    },
-).add_to(incmap)
-
-folium.features.GeoJson(
-    geoinc,
+# Tooltip plot
+toolt = folium.features.GeoJson(
+    geopopinc,
     style_function=style_function,
     control=False,
     highlight_function=highlight_function,
     tooltip=folium.features.GeoJsonTooltip(
-        fields=["Planning Area"],
-        aliases=["Planning Area: "],
+        fields=["Planning Area", "Population", "median_inc"],
+        aliases=["Planning Area: ", "Population: ", "Median Income: "],
         style=(
             "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
         ),
     ),
-).add_to(incmap)
+)
 
-geoinc_lvl = geoinc.drop(columns=["id", "Planning Area", "geometry"])
+popinc_map.add_child(toolt)
+popinc_map.keep_in_front(toolt)
 
-for poly_i in geoinc["geometry"]:
-    for _ in range(geoinc_lvl.shape[1]):
-        plot_pop_points(incmap, 10, poly_i, "Blue")
+folium.LayerControl().add_to(popinc_map)
 
-incmap
+popinc_map
+# %%
+
 # %%
