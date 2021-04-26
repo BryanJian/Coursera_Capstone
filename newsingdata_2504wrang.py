@@ -49,10 +49,6 @@ sub_geodf["geometry"] = [
     for feature in sub_geodf["geometry"]
 ]  # Required or else highlight function may not work
 
-# %%
-# Plotting Planning Area and Subzones on Map
-m = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
-
 # Map Highlight function
 highlight_function = lambda x: {
     "fillColor": "#000000",
@@ -60,6 +56,10 @@ highlight_function = lambda x: {
     "fillOpacity": 0.50,
     "weight": 0.1,
 }
+
+# %%
+# Plotting Planning Area and Subzones on Map
+m = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
 
 # Subzone Boundaries
 folium.GeoJson(
@@ -127,12 +127,6 @@ for add in xft_add:
     location = geolocator.geocode("{} Singapore".format(add))
     xft_lat.append(location.latitude)
     xft_lng.append(location.longitude)
-
-print(xft_add)
-
-
-# %% [markdown]
-# #### API Request for Bubble Tea Locations
 
 # %%
 get_ipython().run_line_magic("load_ext", "dotenv")
@@ -342,27 +336,13 @@ macro._template = Template(template)
 m.get_root().add_child(macro)
 
 # %%
-# Plotting MRT Station Heat Map
+# MRT Station Location DF
 # Credit: https://www.kaggle.com/yxlee245/singapore-train-station-coordinates?select=mrt_lrt_data.csv
 mrt_df = pd.read_csv("mrt_lrt_data.csv")
 mrt_df = mrt_df[mrt_df["type"] == "MRT"]  # Filtering out other station types
 
-# # Plotting MRT Stations onto map
-# for index, row in mrt_df.iterrows():
-#     lat = row["lat"]
-#     lng = row["lng"]
-#     name = row["station_name"]
-#     type_ = row["type"]
-
-#     folium.CircleMarker(
-#         location=[lat, lng],
-#         radius=1,
-#         popup="{} ({})".format(name, type_),
-#         color="Grey",
-#         fill_color="Grey",
-#         fill_opacity=1,
-#     ).add_to(m)
-
+# %%
+# Plotting MRT Stations Heatmap
 HeatMap(
     mrt_df[["lat", "lng"]].values.tolist(), name="MRT Heatmap", radius=12, max_zoom=13
 ).add_to(m)
@@ -432,7 +412,7 @@ mall_df.head()
 
 # %%
 # Plotting Shopping Malls HeatMap against Bubble Tea shop locations
-# Replotting Planning Area and Subzone Boundaries
+
 m1 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
 
 # Subzone Boundaries
@@ -501,7 +481,7 @@ m1.get_root().add_child(macro)  # Adding legend
 HeatMap(
     mall_df[["location.lat", "location.lng"]].values.tolist(),
     name="Shopping Mall Heatmap",
-    radius=15,
+    radius=12,
     max_zoom=13,
 ).add_to(m1)
 
@@ -514,19 +494,50 @@ m1
 def count_point_in_polygon(polygon, lat_list, lng_list):
     """Iterates through a list of lats and lngs and counts number of coordinates within a polygon"""
     count = []
-    for latitude, longitude in zip(lng_list, lat_list):
+    for latitude, longitude in zip(lat_list, lng_list):
         count.append(polygon.contains(Point(longitude, latitude)))
 
     return sum(count)
 
 
 # %%
+# Counting all features on Subzones
+# Counting number of Other Bubble Tea Stores in Subzone
+for i, row in sub_geodf.iterrows():
+    count_ = count_point_in_polygon(
+        row["geometry"], boba_df["location.lat"], boba_df["location.lng"]
+    )
 
+    # Adding to a column in sub_geodf
+    sub_geodf.loc[i, "other_boba_count"] = count_
+
+# Counting number of Xing Fu Tang Stores in Subzone
+for i, row in sub_geodf.iterrows():
+    count_ = count_point_in_polygon(row["geometry"], xft_lat, xft_lng)
+
+    # Adding to a column in sub_geodf
+    sub_geodf.loc[i, "xft_boba_count"] = count_
+
+# Counting number of MRT Stations in Subzone
+for i, row in sub_geodf.iterrows():
+    count_ = count_point_in_polygon(row["geometry"], mrt_df["lat"], mrt_df["lng"])
+
+    # Adding to a column in sub_geodf
+    sub_geodf.loc[i, "mrt_count"] = count_
+
+# Counting number of Shopping Malls in Subzone
+for i, row in sub_geodf.iterrows():
+    count_ = count_point_in_polygon(
+        row["geometry"], mall_df["location.lat"], mall_df["location.lng"]
+    )
+
+    # Adding to a column in sub_geodf
+    sub_geodf.loc[i, "mall_count"] = count_
 
 # %%
-# Reading Data File
-df = pd.read_csv("respopagesextod2011to2020.csv")
-df.columns = [
+# Reading Data File (Previously trimmed to only include 2020 data)
+pt_df = pd.read_csv("respopagesextod2020.csv")
+pt_df.columns = [
     "Planning Area",
     "Subzone",
     "Age Group",
@@ -536,17 +547,349 @@ df.columns = [
     "Time",
 ]
 
-df = df[df["Time"] == 2020]  # Only 2020 data
-
 # Converting columns to uppercase
-df["Planning Area"] = df["Planning Area"].str.upper()
-df["Subzone"] = df["Subzone"].str.upper()
+pt_df["Planning Area"] = pt_df["Planning Area"].str.upper()
+pt_df["Subzone"] = pt_df["Subzone"].str.upper()
+
+# Selecting data for Population range 20 to 44
+pt_df = pt_df[
+    pt_df["Age Group"].str.contains("20_to_24|25_to_29|30_to_34|35_to_39|40_to_44")
+    == True
+]
 
 # %%
+# Setting Type of Dwelling into Dwelling Index
 # https://www.mortgagesupermart.com.sg/resources/types-of-dwellings-properties
+tod_key = list(pt_df["Type of Dwelling"].unique())  # list of dwelling types
+tod_val = [2, 3, 4, 5, 6, 8, 7, 1]  # Giving weights to TOD
+tod_dict = {tod_key[i]: tod_val[i] for i in range(len(tod_key))}
+tod_dict
+
+pt_df["Dwelling Weight"] = pt_df["Type of Dwelling"].map(tod_dict)
+pt_df["Dwelling Index"] = pt_df["Dwelling Weight"] * pt_df["Population"]
+pt_df.head()
+
+sz_list = list(pt_df["Subzone"].unique())  # List of subzones
+
+# Setting Sum of Population and Dwelling Index into a DataFrame
+dwell_list = []
+pop_list = []
+
+for subzone in sz_list:
+    index_sum = pt_df.loc[pt_df["Subzone"] == subzone]["Dwelling Index"].sum()
+    pop_sum = pt_df.loc[pt_df["Subzone"] == subzone]["Population"].sum()
+    count_ = index_sum / pop_sum
+    dwell_list.append((subzone, count_))
+    pop_list.append((subzone, pop_sum))
+
+dwell_df = pd.DataFrame(dwell_list, columns=["Subzone", "Dwelling Index"])
+pop_df = pd.DataFrame(pop_list, columns=["Subzone", "Population"])
+
+# Merging Dwelling Index into Subzone GeoDataFrame
+sub_geodf = pd.merge(sub_geodf, dwell_df, how="left", on="Subzone")
+sub_geodf = pd.merge(sub_geodf, pop_df, how="left", on="Subzone")
 
 # %%
-# Data needed:
-# Population (20 to 44yo)
-# Land Value Index based on average TOD
-# Income [y]
+# Plotting Population Data
+m2 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
+
+# Population Choropleth
+folium.Choropleth(
+    sub_geodf,
+    name="Population (20yo - 45yo, 2020)",
+    legend_name="Population (20yo - 45yo, 2020)",
+    data=sub_geodf,
+    columns=["Subzone", "Population"],
+    key_on="feature.properties.Subzone",
+    fill_color="Blues",
+    fill_opacity=0.7,
+    line_opacity=0.2,
+).add_to(m2)
+
+# Subzone Boundaries
+folium.GeoJson(
+    sub_geodf,
+    name="Subzone Borders",
+    style_function=lambda x: {
+        "fillColor": "#ffffff",
+        "color": "#AEDE74",
+        "fillOpacity": 0.1,
+        "weight": 1,
+    },
+    highlight_function=highlight_function,
+    tooltip=folium.GeoJsonTooltip(
+        fields=["Subzone", "Planning Area", "Population"],
+        aliases=["Subzone: ", "Planning Area: ", "Population: "],
+        style=(
+            "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
+        ),
+    ),
+).add_to(m2)
+
+# Planning Area Boundaries
+folium.GeoJson(
+    plan_geodf,
+    name="Planning Area Borders",
+    style_function=lambda x: {
+        "fillColor": "#00000000",
+        "color": "#488776",
+        "fill": False,
+        "weight": 2,
+    },
+).add_to(m2)
+
+# Other Bubble Tea Outlets from Foursquare API
+for index, row in boba_df.iterrows():
+    lat = row["location.lat"]
+    lng = row["location.lng"]
+    name = row["name"]
+
+    folium.CircleMarker(
+        location=[lat, lng],
+        radius=3,
+        weight=0,
+        popup=name,
+        color="Blue",
+        fill_color="Blue",
+        fill_opacity=0.5,
+    ).add_to(m2)
+
+# Adding Xing Fu Tang Location
+for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
+    folium.CircleMarker(
+        location=[lat, lng],
+        radius=5,
+        weight=2,
+        popup="Xing Fu Tang @ {}".format(add),
+        color="Black",
+        fill_color="Red",
+        fill_opacity=1,
+    ).add_to(m2)
+
+m2.get_root().add_child(macro)  # Adding legend
+
+m2
+# %%
+# Plotting Dwelling Type
+m3 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
+
+# Dwelling Type Choropleth
+folium.Choropleth(
+    sub_geodf,
+    name="Average Dwelling Types",
+    legend_name="Dwelling Index",
+    data=sub_geodf,
+    columns=["Subzone", "Dwelling Index"],
+    key_on="feature.properties.Subzone",
+    fill_color="Greens",
+    fill_opacity=0.7,
+    line_opacity=0.2,
+).add_to(m3)
+
+# Subzone Boundaries
+folium.GeoJson(
+    sub_geodf,
+    name="Subzone Borders",
+    style_function=lambda x: {
+        "fillColor": "#ffffff",
+        "color": "#AEDE74",
+        "fillOpacity": 0.1,
+        "weight": 1,
+    },
+    highlight_function=highlight_function,
+    tooltip=folium.GeoJsonTooltip(
+        fields=["Subzone", "Planning Area", "Dwelling Index"],
+        aliases=["Subzone: ", "Planning Area: ", "Dwelling Index: "],
+        style=(
+            "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
+        ),
+    ),
+).add_to(m3)
+
+# Planning Area Boundaries
+folium.GeoJson(
+    plan_geodf,
+    name="Planning Area Borders",
+    style_function=lambda x: {
+        "fillColor": "#00000000",
+        "color": "#488776",
+        "fill": False,
+        "weight": 2,
+    },
+).add_to(m3)
+
+# Other Bubble Tea Outlets from Foursquare API
+for index, row in boba_df.iterrows():
+    lat = row["location.lat"]
+    lng = row["location.lng"]
+    name = row["name"]
+
+    folium.CircleMarker(
+        location=[lat, lng],
+        radius=3,
+        weight=0,
+        popup=name,
+        color="Blue",
+        fill_color="Blue",
+        fill_opacity=0.5,
+    ).add_to(m3)
+
+# Adding Xing Fu Tang Location
+for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
+    folium.CircleMarker(
+        location=[lat, lng],
+        radius=5,
+        weight=2,
+        popup="Xing Fu Tang @ {}".format(add),
+        color="Black",
+        fill_color="Red",
+        fill_opacity=1,
+    ).add_to(m3)
+
+m3.get_root().add_child(macro)  # Adding legend
+
+m3
+
+# %%
+# Income Data Wrangle
+fincdf = pd.read_csv("SG_planningarea_inc.csv")
+incdf_cs = pd.read_csv("SG_planningarea_inc.csv")
+incdf_cs.loc[:, fincdf.columns != "Planning Area"] = incdf_cs.loc[
+    :, fincdf.columns != "Planning Area"
+].cumsum(axis=1)
+
+# Cumulative Planning Area Median Pop
+incdf_cs["cum_med_pop"] = fincdf.sum(axis=1, numeric_only=True) / 2
+
+# Identifying median income bracket by Planning Area
+inc_brackets = [
+    "Below $1,000",
+    "$1,000 - $1,499",
+    "$1,500 - $1,999",
+    "$2,000 - $2,499",
+    "$2,500 - $2,999",
+    "$3,000 - $3,999",
+    "$4,000 - $4,999",
+    "$5,000 - $5,999",
+    "$6,000 - $6,999",
+    "$7,000 - $7,999",
+    "$8,000 - $8,999",
+    "$9,000 - $9,999",
+    "$10,000 - $10,999",
+    "$11,000 - $11,999",
+    "$12,000 & Over",
+]
+
+med_inc_bracket = []
+for index, row in incdf_cs.iterrows():
+    med_inc_bracket.append(row[inc_brackets].gt(row["cum_med_pop"]).idxmax())
+
+incdf_cs["med_inc_bracket"] = med_inc_bracket
+
+brack_mid = {
+    "Below $1,000": 500,
+    "$1,000 - $1,499": 1250,
+    "$1,500 - $1,999": 1750,
+    "$2,000 - $2,499": 2250,
+    "$2,500 - $2,999": 2750,
+    "$3,000 - $3,999": 3500,
+    "$4,000 - $4,999": 4500,
+    "$5,000 - $5,999": 5500,
+    "$6,000 - $6,999": 6500,
+    "$7,000 - $7,999": 7500,
+    "$8,000 - $8,999": 8500,
+    "$9,000 - $9,999": 9500,
+    "$10,000 - $10,999": 10500,
+    "$11,000 - $11,999": 11500,
+    "$12,000 & Over": 12500,
+}
+
+incdf_cs["median_inc"] = incdf_cs["med_inc_bracket"].map(brack_mid)
+
+incdf = incdf_cs[["Planning Area", "median_inc"]]
+geoinc = plan_geodf.merge(incdf, on="Planning Area", how="left")
+
+# Set median income into sub_geodf
+# sub_geodf = plan_geodf.merge(incdf, on="Planning Area", how="left")
+
+# %%
+# Plotting Income Levels
+m4 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
+
+# Income Levels Choropleth
+folium.Choropleth(
+    geoinc,
+    name="Median Income by Planning Area",
+    legend_name="Median Income (SGD)",
+    data=geoinc,
+    columns=["Planning Area", "median_inc"],
+    key_on="feature.properties.Planning Area",
+    fill_color="Purples",
+    fill_opacity=0.7,
+    line_opacity=0.2,
+).add_to(m4)
+
+# Subzone Boundaries
+folium.GeoJson(
+    geoinc,
+    name="Planning Area Borders",
+    style_function=lambda x: {
+        "fillColor": "#ffffff",
+        "color": "#488776",
+        "fillOpacity": 0.1,
+        "weight": 1,
+    },
+    highlight_function=highlight_function,
+    tooltip=folium.GeoJsonTooltip(
+        fields=["Planning Area", "median_inc"],
+        aliases=["Planning Area: ", "Median Income (SGD): "],
+        style=(
+            "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
+        ),
+    ),
+).add_to(m4)
+
+# # Planning Area Boundaries
+# folium.GeoJson(
+#     plan_geodf,
+#     name="Planning Area Borders",
+#     style_function=lambda x: {
+#         "fillColor": "#00000000",
+#         "color": "#488776",
+#         ""
+#         "weight": 2,
+#     },
+# ).add_to(m4)
+
+# Other Bubble Tea Outlets from Foursquare API
+for index, row in boba_df.iterrows():
+    lat = row["location.lat"]
+    lng = row["location.lng"]
+    name = row["name"]
+
+    folium.CircleMarker(
+        location=[lat, lng],
+        radius=3,
+        weight=0,
+        popup=name,
+        color="Blue",
+        fill_color="Blue",
+        fill_opacity=0.5,
+    ).add_to(m4)
+
+# Adding Xing Fu Tang Location
+for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
+    folium.CircleMarker(
+        location=[lat, lng],
+        radius=5,
+        weight=2,
+        popup="Xing Fu Tang @ {}".format(add),
+        color="Black",
+        fill_color="Red",
+        fill_opacity=1,
+    ).add_to(m4)
+
+m4.get_root().add_child(macro)  # Adding legend
+
+m4
+# %%
