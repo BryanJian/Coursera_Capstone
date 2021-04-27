@@ -1,5 +1,4 @@
 # %%
-import copy
 import os
 
 import branca.colormap as cmp
@@ -345,7 +344,7 @@ AREA = "Singapore%2C%20Singapore"
 # Identifying Top 9 Bubble Tea Chains in Singapore (excluding Xing Fu Tang)
 # Source: http://topten.sg/food/7916
 BUBBLE_CHAINS = [
-    "KOI The",
+    "KOI",
     "Gong Cha",
     "Tiger Sugar",
     "Heytea",
@@ -354,8 +353,10 @@ BUBBLE_CHAINS = [
     "Sharetea",
     "Milksha",
     "LiHO",
+    "Hollin",
+    "Truedan",
 ]
-LIMIT = 100
+LIMIT = 200
 
 # Creating empty dataframe
 boba_df = pd.DataFrame(
@@ -382,8 +383,8 @@ boba_df = pd.DataFrame(
 )
 
 for chain in BUBBLE_CHAINS:
-    boba_url = "https://api.foursquare.com/v2/venues/search?client_id={}&client_secret={}&near={}&oauth_token={}&v={}&query={}&categoryId={}&limit={}".format(
-        CLIENT_ID, CLIENT_SECRET, AREA, ACCESS_TOKEN, VERSION, chain, BUBBLE_ID, LIMIT,
+    boba_url = "https://api.foursquare.com/v2/venues/search?categoryId={}&client_id={}&client_secret={}&near={}&oauth_token={}&v={}&query={}&limit={}".format(
+        BUBBLE_ID, CLIENT_ID, CLIENT_SECRET, AREA, ACCESS_TOKEN, VERSION, chain, LIMIT,
     )
 
     boba_results = requests.get(boba_url).json()
@@ -400,10 +401,20 @@ for chain in BUBBLE_CHAINS:
 # Filtering results from other countries
 boba_df = boba_df[boba_df["location.country"].str.contains("Singapore")]
 
+# Filtering results that are not Bubble Tea Shops
+boba_df_cat = boba_df.categories.apply(pd.Series).iloc[:, 0].apply(pd.Series)
+boba_df_cat.rename(columns={"id": "cat_id", "name": "cat_name"}, inplace=True)
+boba_df = boba_df.join(boba_df_cat)
+boba_df = boba_df[boba_df["cat_name"] == "Bubble Tea Shop"]
+
 # Dropping duplicated results based on Foursquare Place ID
 boba_df.drop_duplicates(subset=["id"], inplace=True)
+boba_df.reset_index(inplace=True, drop=True)
 
-boba_df.head()
+print(
+    "Categories of venues: {}".format(boba_df["cat_name"].unique())
+)  # Checking Categories
+boba_df
 
 # %%
 # Plotting Bubble Tea Outlets
@@ -479,38 +490,40 @@ mall_df = pd.DataFrame(
     ]
 )
 
-# Category IDs for Shopping Mall, Shopping Plaza, Outlet Mall, Outlet Store and Supermarket
-MALL_ID = [
-    "4bf58dd8d48988d1fd941735",
-    "5744ccdfe4b0c0459246b4dc",
-    "5744ccdfe4b0c0459246b4df",
-    "52f2ab2ebcbc57f1066b8b35",
-    "52f2ab2ebcbc57f1066b8b46",
-]
+# Category IDs for Shopping Mall
+MALL_ID = "4bf58dd8d48988d1fd941735"
 
-for mall_ID in MALL_ID:
-    mall_url = "https://api.foursquare.com/v2/venues/search?client_id={}&client_secret={}&near={}&oauth_token={}&v={}&categoryId={}&limit={}".format(
-        CLIENT_ID, CLIENT_SECRET, AREA, ACCESS_TOKEN, VERSION, mall_ID, LIMIT,
-    )
+mall_url = "https://api.foursquare.com/v2/venues/search?categoryId={}&client_id={}&client_secret={}&near={}&oauth_token={}&v={}&limit={}".format(
+    MALL_ID, CLIENT_ID, CLIENT_SECRET, AREA, ACCESS_TOKEN, VERSION, LIMIT,
+)
 
-    mall_results = requests.get(mall_url).json()
+mall_results = requests.get(mall_url).json()
 
-    # Assign relevant part of JSON to venues
-    mall_venues = mall_results["response"]["venues"]
+# Assign relevant part of JSON to venues
+mall_venues = mall_results["response"]["venues"]
 
-    # Tranform venues into a dataframe
-    mall_df_temp = pd.json_normalize(mall_venues)
-
-    # Append to main dataframe
-    mall_df = mall_df.append(mall_df_temp, ignore_index=True)
+# Tranform venues into a dataframe
+mall_df = pd.json_normalize(mall_venues)
 
 # Filtering results from other countries
 mall_df = mall_df[mall_df["location.country"].str.contains("Singapore")]
 
+# Filtering results that are not Shopping Mall, Shopping Plaza, Outlet Mall or Supermarket
+mall_df_cat = mall_df.categories.apply(pd.Series).iloc[:, 0].apply(pd.Series)
+mall_df_cat.rename(columns={"id": "cat_df", "name": "cat_name"}, inplace=True)
+mall_df = mall_df.join(mall_df_cat)
+mall_df = mall_df[
+    mall_df["cat_name"].isin(["Shopping Mall", "Shopping Plaza", "Supermarket"])
+]
+
 # Dropping duplicated results based on Foursquare Place ID
 mall_df.drop_duplicates(subset=["id"], inplace=True)
+mall_df.reset_index(inplace=True, drop=True)
 
-mall_df.head()
+print(
+    "Categories of venues: {}".format(mall_df["cat_name"].unique())
+)  # Checking Categories
+mall_df
 
 # %%
 # Plotting Shopping Malls HeatMap against Bubble Tea shop locations
@@ -946,19 +959,23 @@ age_df = pd.read_csv("ages_pop2020.csv")
 
 # %%
 # Preparing Data for Analysis
-cluster_df = sub_geodf.merge(age_df, how="left", on="Subzone")
+# cluster_df = sub_geodf.merge(age_df, how="left", on="Subzone")
+cluster_df = sub_geodf.merge(
+    age_df[["Subzone", "pop_total20_44"]], how="left", on="Subzone"
+)
 
 # Separating data info and data values
-# Removing pop_total and pop_total20_44 to avoid multicollinearity
-info_cols = ["Subzone", "Planning Area", "geometry", "pop_total", "pop_total20_44"]
+# Removing pop_total to avoid multicollinearity
+info_cols = ["Subzone", "Planning Area", "geometry", "pop_total"]
 cluster_info = cluster_df[info_cols]
 cluster_val = cluster_df.drop(columns=info_cols)
 
+# %%
+# Cleaning up NaN Values in dataframe
 # Example of NaN rows
 cluster_val.head(2)
 
 # %%
-# Cleaning up NaN Values in dataframe
 # For rows with only 0 or NaN cells
 # We replace NaN with 0
 for index, row in cluster_val.iterrows():
@@ -976,6 +993,7 @@ cluster_val = pd.DataFrame(filled_array, columns=list(cluster_val.columns))
 print("Anymore NaN values? {}".format(cluster_val.isnull().values.any()))
 
 # %%
+# Using StandardScaler on cluster_val
 cluster_std = StandardScaler().fit_transform(cluster_val)
 cluster_std
 
@@ -1058,7 +1076,7 @@ color_step = cmp.StepColormap(color_list, vmin=1, vmax=k_opt, caption="Clusters"
 cluster_dict = cluster_geodf.set_index("Subzone")["cluster"]
 
 # %%
-# Group Subzones into clusters on Map
+# Plot Subzones clusters on Map
 m5 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
 
 # Colouring Subzones based on Clusters
@@ -1071,8 +1089,8 @@ cluster_gj = folium.GeoJson(
         "weight": 1,
     },
     tooltip=folium.GeoJsonTooltip(
-        fields=["Subzone", "cluster"],
-        aliases=["Subzone: ", "Cluster: "],
+        fields=["Planning Area", "Subzone", "cluster"],
+        aliases=["Planning Area: ", "Subzone: ", "Cluster: "],
         style=(
             "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
         ),
@@ -1088,6 +1106,12 @@ m5
 # %%
 # Plot Bubble Tea locations
 # Other Bubble Tea Outlets from Foursquare API
+m6 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
+
+cluster_gj.add_to(m6)
+plan_border.add_to(m6)
+color_step.add_to(m6)
+
 for index, row in boba_df.iterrows():
     lat = row["location.lat"]
     lng = row["location.lng"]
@@ -1101,7 +1125,7 @@ for index, row in boba_df.iterrows():
         color="Black",
         fill_color="Blue",
         fill_opacity=0.5,
-    ).add_to(m5)
+    ).add_to(m6)
 
 # Adding Xing Fu Tang Location
 for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
@@ -1113,18 +1137,18 @@ for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
         color="Black",
         fill_color="Red",
         fill_opacity=1,
-    ).add_to(m5)
+    ).add_to(m6)
 
-m5.get_root().add_child(bubble_macro)  # Adding legend
+m6.get_root().add_child(bubble_macro)  # Adding legend
 
-m5
+m6
 # %%
 # Plot MRT and Shopping Mall Location
-m6 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
+m7 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
 
-cluster_gj.add_to(m6)
-plan_border.add_to(m6)
-color_step.add_to(m6)
+cluster_gj.add_to(m7)
+plan_border.add_to(m7)
+color_step.add_to(m7)
 
 # MRT Locations
 for index, row in mrt_df.iterrows():
@@ -1140,7 +1164,7 @@ for index, row in mrt_df.iterrows():
         color="black",
         fill_color="#00FF00",
         fill_opacity=1,
-    ).add_to(m6)
+    ).add_to(m7)
 
 # Shopping Mall locations from Foursquare API
 for index, row in mall_df.iterrows():
@@ -1156,12 +1180,28 @@ for index, row in mall_df.iterrows():
         color="Black",
         fill_color="#FF00FF",
         fill_opacity=1,
-    ).add_to(m6)
+    ).add_to(m7)
 
-m6.get_root().add_child(mrt_mall_macro)  # Adding legend
+m7.get_root().add_child(mrt_mall_macro)  # Adding legend
 
-m6
+m7
 # %%
 # Scoring each feature to get cluster score
-# MRT/Mall scoring
-cluster_geodf["mrt_mall_score"]
+# MRT/Mall weighted scoring
+cluster_geodf["mrt_mall_score"] = (
+    cluster_geodf["mrt_count"] * 5 + cluster_geodf["mall_count"] * 5
+)
+
+# Bubbled Tea Shop weighted scoring
+cluster_geodf["bubble_score"] = (
+    cluster_geodf["other_boba_count"] + cluster_geodf["xft_boba_count"] * 10
+)
+
+# Subzone total weighted scoring
+cluster_geodf["subzone_score"] = (
+    cluster_geodf["mrt_mall_score"] - cluster_geodf["bubble_score"]
+)
+
+cluster_geodf.head()
+
+# %%
