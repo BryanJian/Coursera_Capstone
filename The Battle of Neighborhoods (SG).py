@@ -16,8 +16,6 @@
 # Import Necessary Libraries
 
 import os
-
-# %%
 import folium
 import geopandas as gpd
 import numpy as np

@@ -1,10 +1,14 @@
 # %%
+import copy
 import os
 
+import branca.colormap as cmp
 import folium
 import geopandas as gpd
+import matplotlib.pyplot as plt
 import pandas as pd
 import requests
+import seaborn as sns
 from branca.element import MacroElement, Template
 from bs4 import BeautifulSoup
 from folium.plugins import HeatMap
@@ -12,11 +16,13 @@ from geopy.geocoders import (
     Nominatim,
 )  # module to convert an address into latitude and longitude values
 from IPython import get_ipython
-from matplotlib import cm
-from matplotlib.colors import Normalize, rgb2hex
 from shapely.geometry import Point
 from shapely.geometry.collection import GeometryCollection
 from shapely.geometry.multipolygon import MultiPolygon
+from sklearn.cluster import KMeans
+from sklearn.impute import KNNImputer
+from sklearn.metrics import cluster, silhouette_score
+from sklearn.preprocessing import StandardScaler
 
 # %%
 # Geodata Preparation
@@ -49,6 +55,8 @@ sub_geodf["geometry"] = [
     for feature in sub_geodf["geometry"]
 ]  # Required or else highlight function may not work
 
+# %%
+# Map Functions
 # Map Highlight function
 highlight_function = lambda x: {
     "fillColor": "#000000",
@@ -56,6 +64,117 @@ highlight_function = lambda x: {
     "fillOpacity": 0.50,
     "weight": 0.1,
 }
+
+# Subzone Style function
+sub_style_function = lambda x: {
+    "fillColor": "#ffffff",
+    "color": "Grey",
+    "fillOpacity": 0.1,
+    "weight": 0.7,
+}
+
+# Planning Area Style function:
+plan_style_function = lambda x: {
+    "fillColor": "#00000000",
+    "color": "Black",
+    "fill": False,
+    "weight": 1.5,
+}
+
+# Drawing Legend on Map
+# Credit: https://github.com/python-visualization/folium/issues/528#issuecomment-421445303 (Colin Talbert)
+template = """
+{% macro html(this, kwargs) %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jQuery UI Draggable - Default functionality</title>
+  <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+  <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+  
+  <script>
+  $( function() {
+    $( "#maplegend" ).draggable({
+                    start: function (event, ui) {
+                        $(this).css({
+                            right: "auto",
+                            top: "auto",
+                            bottom: "auto"
+                        });
+                    }
+                });
+});
+
+  </script>
+</head>
+<body>
+
+ 
+<div id='maplegend' class='maplegend' 
+    style='position: absolute; z-index:9999; border:0px solid grey; background-color:rgba(255, 255, 255, 0.8);
+     border-radius:1px; padding: 10px; font-size:12px; right: 20px; bottom: 20px;'>
+     
+<div class='legend-title'>Legend</div>
+<div class='legend-scale'>
+  <ul class='legend-labels'>
+    <li><span style='background:red;opacity:0.7;'></span>Xing Fu Tang Outlets</li>
+    <li><span style='background:blue;opacity:0.7;'></span>Other Bubble Tea Outlets</li>
+    
+  </ul>
+</div>
+</div>
+ 
+</body>
+</html>
+
+<style type='text/css'>
+  .maplegend .legend-title {
+    text-align: left;
+    margin-bottom: 5px;
+    font-weight: bold;
+    font-size: 90%;
+    }
+  .maplegend .legend-scale ul {
+    margin: 0;
+    margin-bottom: 5px;
+    padding: 0;
+    float: left;
+    list-style: none;
+    }
+  .maplegend .legend-scale ul li {
+    font-size: 80%;
+    list-style: none;
+    margin-left: 0;
+    line-height: 18px;
+    margin-bottom: 2px;
+    }
+  .maplegend ul.legend-labels li span {
+    display: block;
+    float: left;
+    height: 16px;
+    width: 16px;
+    margin-right: 5px;
+    margin-left: 0;
+    border: 0px solid #999;
+    }
+  .maplegend .legend-source {
+    font-size: 80%;
+    color: #777;
+    clear: both;
+    }
+  .maplegend a {
+    color: #777;
+    }
+</style>
+{% endmacro %}"""
+
+macro = MacroElement()
+macro._template = Template(template)
 
 # %%
 # Plotting Planning Area and Subzones on Map
@@ -65,12 +184,7 @@ m = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=
 folium.GeoJson(
     sub_geodf,
     name="Subzone Borders",
-    style_function=lambda x: {
-        "fillColor": "#ffffff",
-        "color": "#AEDE74",
-        "fillOpacity": 0.1,
-        "weight": 1,
-    },
+    style_function=sub_style_function,
     highlight_function=highlight_function,
     tooltip=folium.GeoJsonTooltip(
         fields=["Subzone", "Planning Area"],
@@ -85,12 +199,7 @@ folium.GeoJson(
 folium.GeoJson(
     plan_geodf,
     name="Planning Area Borders",
-    style_function=lambda x: {
-        "fillColor": "#00000000",
-        "color": "#488776",
-        "fill": False,
-        "weight": 2,
-    },
+    style_function=plan_style_function,
     # highlight_function=highlight_function,
     # tooltip=folium.GeoJsonTooltip(
     #     fields=["Planning Area"],
@@ -238,101 +347,6 @@ for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
         fill_opacity=1,
     ).add_to(m)
 
-# Drawing Legend on Map
-# Credit: https://github.com/python-visualization/folium/issues/528#issuecomment-421445303 (Colin Talbert)
-template = """
-{% macro html(this, kwargs) %}
-
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>jQuery UI Draggable - Default functionality</title>
-  <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
-
-  <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
-  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
-  
-  <script>
-  $( function() {
-    $( "#maplegend" ).draggable({
-                    start: function (event, ui) {
-                        $(this).css({
-                            right: "auto",
-                            top: "auto",
-                            bottom: "auto"
-                        });
-                    }
-                });
-});
-
-  </script>
-</head>
-<body>
-
- 
-<div id='maplegend' class='maplegend' 
-    style='position: absolute; z-index:9999; border:0px solid grey; background-color:rgba(255, 255, 255, 0.8);
-     border-radius:1px; padding: 10px; font-size:12px; right: 20px; bottom: 20px;'>
-     
-<div class='legend-title'>Legend</div>
-<div class='legend-scale'>
-  <ul class='legend-labels'>
-    <li><span style='background:red;opacity:0.7;'></span>Xing Fu Tang Outlets</li>
-    <li><span style='background:blue;opacity:0.7;'></span>Other Bubble Tea Outlets</li>
-    
-  </ul>
-</div>
-</div>
- 
-</body>
-</html>
-
-<style type='text/css'>
-  .maplegend .legend-title {
-    text-align: left;
-    margin-bottom: 5px;
-    font-weight: bold;
-    font-size: 90%;
-    }
-  .maplegend .legend-scale ul {
-    margin: 0;
-    margin-bottom: 5px;
-    padding: 0;
-    float: left;
-    list-style: none;
-    }
-  .maplegend .legend-scale ul li {
-    font-size: 80%;
-    list-style: none;
-    margin-left: 0;
-    line-height: 18px;
-    margin-bottom: 2px;
-    }
-  .maplegend ul.legend-labels li span {
-    display: block;
-    float: left;
-    height: 16px;
-    width: 16px;
-    margin-right: 5px;
-    margin-left: 0;
-    border: 0px solid #999;
-    }
-  .maplegend .legend-source {
-    font-size: 80%;
-    color: #777;
-    clear: both;
-    }
-  .maplegend a {
-    color: #777;
-    }
-</style>
-{% endmacro %}"""
-
-macro = MacroElement()
-macro._template = Template(template)
-
 m.get_root().add_child(macro)
 
 # %%
@@ -412,19 +426,13 @@ mall_df.head()
 
 # %%
 # Plotting Shopping Malls HeatMap against Bubble Tea shop locations
-
 m1 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
 
 # Subzone Boundaries
 folium.GeoJson(
     sub_geodf,
     name="Subzone Borders",
-    style_function=lambda x: {
-        "fillColor": "#ffffff",
-        "color": "#AEDE74",
-        "fillOpacity": 0.1,
-        "weight": 1,
-    },
+    style_function=sub_style_function,
     highlight_function=highlight_function,
     tooltip=folium.GeoJsonTooltip(
         fields=["Subzone", "Planning Area"],
@@ -437,14 +445,7 @@ folium.GeoJson(
 
 # Planning Area Boundaries
 folium.GeoJson(
-    plan_geodf,
-    name="Planning Area Borders",
-    style_function=lambda x: {
-        "fillColor": "#00000000",
-        "color": "#488776",
-        "fill": False,
-        "weight": 2,
-    },
+    plan_geodf, name="Planning Area Borders", style_function=plan_style_function,
 ).add_to(m1)
 
 # Other Bubble Tea Outlets from Foursquare API
@@ -503,39 +504,39 @@ def count_point_in_polygon(polygon, lat_list, lng_list):
 # %%
 # Counting all features on Subzones
 # Counting number of Other Bubble Tea Stores in Subzone
-for i, row in sub_geodf.iterrows():
+for index, row in sub_geodf.iterrows():
     count_ = count_point_in_polygon(
         row["geometry"], boba_df["location.lat"], boba_df["location.lng"]
     )
 
     # Adding to a column in sub_geodf
-    sub_geodf.loc[i, "other_boba_count"] = count_
+    sub_geodf.loc[index, "other_boba_count"] = count_
 
 # Counting number of Xing Fu Tang Stores in Subzone
-for i, row in sub_geodf.iterrows():
+for index, row in sub_geodf.iterrows():
     count_ = count_point_in_polygon(row["geometry"], xft_lat, xft_lng)
 
     # Adding to a column in sub_geodf
-    sub_geodf.loc[i, "xft_boba_count"] = count_
+    sub_geodf.loc[index, "xft_boba_count"] = count_
 
 # Counting number of MRT Stations in Subzone
-for i, row in sub_geodf.iterrows():
+for index, row in sub_geodf.iterrows():
     count_ = count_point_in_polygon(row["geometry"], mrt_df["lat"], mrt_df["lng"])
 
     # Adding to a column in sub_geodf
-    sub_geodf.loc[i, "mrt_count"] = count_
+    sub_geodf.loc[index, "mrt_count"] = count_
 
 # Counting number of Shopping Malls in Subzone
-for i, row in sub_geodf.iterrows():
+for index, row in sub_geodf.iterrows():
     count_ = count_point_in_polygon(
         row["geometry"], mall_df["location.lat"], mall_df["location.lng"]
     )
 
     # Adding to a column in sub_geodf
-    sub_geodf.loc[i, "mall_count"] = count_
+    sub_geodf.loc[index, "mall_count"] = count_
 
 # %%
-# Reading Data File (Previously trimmed to only include 2020 data)
+# Reading Population/Age and Dwelling Type Data File (Previously trimmed to only include 2020 data)
 pt_df = pd.read_csv("respopagesextod2020.csv")
 pt_df.columns = [
     "Planning Area",
@@ -552,10 +553,10 @@ pt_df["Planning Area"] = pt_df["Planning Area"].str.upper()
 pt_df["Subzone"] = pt_df["Subzone"].str.upper()
 
 # Selecting data for Population range 20 to 44
-pt_df = pt_df[
-    pt_df["Age Group"].str.contains("20_to_24|25_to_29|30_to_34|35_to_39|40_to_44")
-    == True
-]
+# pt_df = pt_df[
+#     pt_df["Age Group"].str.contains("20_to_24|25_to_29|30_to_34|35_to_39|40_to_44")
+#     == True
+# ]
 
 # %%
 # Setting Type of Dwelling into Dwelling Index
@@ -589,6 +590,11 @@ pop_df = pd.DataFrame(pop_list, columns=["Subzone", "Population"])
 sub_geodf = pd.merge(sub_geodf, dwell_df, how="left", on="Subzone")
 sub_geodf = pd.merge(sub_geodf, pop_df, how="left", on="Subzone")
 
+# Renaming columns for consistency
+sub_geodf.rename(
+    columns={"Dwelling Index": "dwell_idx", "Population": "pop_total"}, inplace=True
+)
+
 # %%
 # Plotting Population Data
 m2 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
@@ -596,10 +602,10 @@ m2 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start
 # Population Choropleth
 folium.Choropleth(
     sub_geodf,
-    name="Population (20yo - 45yo, 2020)",
-    legend_name="Population (20yo - 45yo, 2020)",
+    name="Population",
+    legend_name="Population, 2020",
     data=sub_geodf,
-    columns=["Subzone", "Population"],
+    columns=["Subzone", "pop_total"],
     key_on="feature.properties.Subzone",
     fill_color="Blues",
     fill_opacity=0.7,
@@ -610,15 +616,10 @@ folium.Choropleth(
 folium.GeoJson(
     sub_geodf,
     name="Subzone Borders",
-    style_function=lambda x: {
-        "fillColor": "#ffffff",
-        "color": "#AEDE74",
-        "fillOpacity": 0.1,
-        "weight": 1,
-    },
+    style_function=sub_style_function,
     highlight_function=highlight_function,
     tooltip=folium.GeoJsonTooltip(
-        fields=["Subzone", "Planning Area", "Population"],
+        fields=["Subzone", "Planning Area", "pop_total"],
         aliases=["Subzone: ", "Planning Area: ", "Population: "],
         style=(
             "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
@@ -628,14 +629,7 @@ folium.GeoJson(
 
 # Planning Area Boundaries
 folium.GeoJson(
-    plan_geodf,
-    name="Planning Area Borders",
-    style_function=lambda x: {
-        "fillColor": "#00000000",
-        "color": "#488776",
-        "fill": False,
-        "weight": 2,
-    },
+    plan_geodf, name="Planning Area Borders", style_function=plan_style_function,
 ).add_to(m2)
 
 # Other Bubble Tea Outlets from Foursquare API
@@ -679,7 +673,7 @@ folium.Choropleth(
     name="Average Dwelling Types",
     legend_name="Dwelling Index",
     data=sub_geodf,
-    columns=["Subzone", "Dwelling Index"],
+    columns=["Subzone", "dwell_idx"],
     key_on="feature.properties.Subzone",
     fill_color="Greens",
     fill_opacity=0.7,
@@ -690,15 +684,10 @@ folium.Choropleth(
 folium.GeoJson(
     sub_geodf,
     name="Subzone Borders",
-    style_function=lambda x: {
-        "fillColor": "#ffffff",
-        "color": "#AEDE74",
-        "fillOpacity": 0.1,
-        "weight": 1,
-    },
+    style_function=sub_style_function,
     highlight_function=highlight_function,
     tooltip=folium.GeoJsonTooltip(
-        fields=["Subzone", "Planning Area", "Dwelling Index"],
+        fields=["Subzone", "Planning Area", "dwell_idx"],
         aliases=["Subzone: ", "Planning Area: ", "Dwelling Index: "],
         style=(
             "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
@@ -708,14 +697,7 @@ folium.GeoJson(
 
 # Planning Area Boundaries
 folium.GeoJson(
-    plan_geodf,
-    name="Planning Area Borders",
-    style_function=lambda x: {
-        "fillColor": "#00000000",
-        "color": "#488776",
-        "fill": False,
-        "weight": 2,
-    },
+    plan_geodf, name="Planning Area Borders", style_function=plan_style_function,
 ).add_to(m3)
 
 # Other Bubble Tea Outlets from Foursquare API
@@ -751,7 +733,7 @@ m3.get_root().add_child(macro)  # Adding legend
 m3
 
 # %%
-# Income Data Wrangle
+# Income Data Preparation
 fincdf = pd.read_csv("SG_planningarea_inc.csv")
 incdf_cs = pd.read_csv("SG_planningarea_inc.csv")
 incdf_cs.loc[:, fincdf.columns != "Planning Area"] = incdf_cs.loc[
@@ -810,7 +792,7 @@ incdf = incdf_cs[["Planning Area", "median_inc"]]
 geoinc = plan_geodf.merge(incdf, on="Planning Area", how="left")
 
 # Set median income into sub_geodf
-# sub_geodf = plan_geodf.merge(incdf, on="Planning Area", how="left")
+sub_geodf = sub_geodf.merge(incdf, on="Planning Area", how="left")
 
 # %%
 # Plotting Income Levels
@@ -829,7 +811,7 @@ folium.Choropleth(
     line_opacity=0.2,
 ).add_to(m4)
 
-# Subzone Boundaries
+# Planning Area Boundaries
 folium.GeoJson(
     geoinc,
     name="Planning Area Borders",
@@ -848,18 +830,6 @@ folium.GeoJson(
         ),
     ),
 ).add_to(m4)
-
-# # Planning Area Boundaries
-# folium.GeoJson(
-#     plan_geodf,
-#     name="Planning Area Borders",
-#     style_function=lambda x: {
-#         "fillColor": "#00000000",
-#         "color": "#488776",
-#         ""
-#         "weight": 2,
-#     },
-# ).add_to(m4)
 
 # Other Bubble Tea Outlets from Foursquare API
 for index, row in boba_df.iterrows():
@@ -892,4 +862,188 @@ for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
 m4.get_root().add_child(macro)  # Adding legend
 
 m4
+# %%
+# Setting Population by Age Group by Subzone into sub_geodf
+age_df = pd.read_csv("ages_pop2020.csv")
+
+# NOTE Potential for performance improvements
+# age_ranges = list(pt_df["Age Group"].unique())
+# age_df = pd.DataFrame(sz_list, columns=["Subzone"])
+# pt_trim_df = pt_df[["Subzone", "Age Group", "Population"]]
+
+# for age in age_ranges:
+#     age_list = []
+#     for subzone in sz_list:
+#         age_sum = pt_trim_df.loc[(pt_trim_df["Subzone"] == subzone) & (pt_trim_df["Age Group"] == age)]["Population"].sum()
+
+#         age_list.append((subzone, age_sum))
+
+#     age_df = age_df.merge(
+#         pd.DataFrame(age_list, columns=["Subzone", age]), how="left", on="Subzone"
+#     )
+
+sub_geodf = sub_geodf.merge(age_df, how="left", on="Subzone")
+# %%
+# Preparing Data for Analysis
+# Duplicating DF
+cluster_df = copy.deepcopy(sub_geodf)
+
+# Separating data info and data values
+cluster_info = cluster_df[["Subzone", "Planning Area", "geometry"]]
+cluster_val = cluster_df.drop(columns=["Subzone", "Planning Area", "geometry"])
+
+# Example of NaN rows
+cluster_val.head(2)
+
+# %%
+# Cleaning up NaN Values in dataframe
+# For rows with only 0 or NaN cells
+# We replace NaN with 0
+for index, row in cluster_val.iterrows():
+    if row.sum() == 0:
+        row.fillna(0, inplace=True)
+        cluster_val.loc[index] = row  # Write rows into Dataframe
+    else:
+        pass
+
+# For rows that have data other than 0 for all columns
+# Ww use K-nearest neighbour algorithm to estimate and fill NaNs
+imputer = KNNImputer(n_neighbors=5)
+filled_array = imputer.fit_transform(cluster_val)
+cluster_val = pd.DataFrame(filled_array, columns=list(cluster_val.columns))
+print("Anymore NaN values? {}".format(cluster_val.isnull().values.any()))
+
+# %%
+cluster_std = StandardScaler().fit_transform(cluster_val)
+cluster_std
+
+# %%
+# Evaluating K-means to choose K value
+kmin = 4
+kmax = 16
+k_list = list(range(kmin, kmax))
+elb = []
+sil = []
+
+for k in k_list:
+    km = KMeans(n_clusters=k, random_state=0)
+    km.fit(cluster_std)
+    elb.append(km.inertia_)
+    sil.append(silhouette_score(cluster_std, km.labels_))
+
+# %%
+# Plotting Sum of square distance and Silhouette score
+fig, ax1 = plt.subplots()
+
+ax2 = ax1.twinx()
+ax1.plot(k_list, elb, "bo-")
+ax2.plot(k_list, sil, "ro-")
+
+ax1.set_xlabel("Number of clusters, k")
+ax1.set_ylabel("Sum of squared distance", color="b")
+ax2.set_ylabel("Silhouette score", color="r")
+
+plt.show()
+
+k_opt = sil.index(max(sil)) + kmin + 1
+
+print("Optimal k value: {}".format(k_opt))
+
+# %%
+# Run K-means clustering again with k = 14
+kmeans = KMeans(n_clusters=k_opt, random_state=0).fit(cluster_std)
+
+# Set K-means cluster labels into Dataframe
+cluster_val["cluster"] = kmeans.labels_ + 1
+
+# Rejoin info and value (filled) dataframes
+cluster_df = cluster_info.join(cluster_val)
+
+# Converting cluster_df into a GeoDataFrame
+cluster_geodf = gpd.GeoDataFrame(cluster_df, geometry="geometry")
+
+# %%
+# Group Subzones into clusters on Map
+m5 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
+
+# Colour map for Clusters
+color_step = cmp.StepColormap(
+    [
+        "#8dd3c7",
+        "#ffffb3",
+        "#bebada",
+        "#fb8072",
+        "#80b1d3",
+        "#fdb462",
+        "#b3de69",
+        "#fccde5",
+        "#d9d9d9",
+        "#bc80bd",
+        "#ccebc5",
+        "#ffed6f",
+        "#2BF3D4",
+        "#20BCF7",
+    ],
+    vmin=1,
+    vmax=k_opt,
+    caption="Clusters",
+)
+
+cluster_dict = cluster_geodf.set_index("Subzone")["cluster"]
+
+# %%
+# Colouring Subzones based on Clusters
+folium.GeoJson(
+    cluster_geodf,
+    style_function=lambda feature: {
+        "fillColor": color_step(cluster_dict[feature["properties"]["Subzone"]]),
+        "color": "Grey",
+        "fillOpacity": 0.6,
+        "weight": 0.7,
+    },
+    tooltip=folium.GeoJsonTooltip(
+        fields=["Subzone", "cluster"],
+        aliases=["Subzone: ", "Cluster: "],
+        style=(
+            "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
+        ),
+    ),
+).add_to(m5)
+
+# Planning Area Boundaries
+folium.GeoJson(
+    plan_geodf, name="Planning Area Borders", style_function=plan_style_function,
+).add_to(m5)
+
+# Other Bubble Tea Outlets from Foursquare API
+for index, row in boba_df.iterrows():
+    lat = row["location.lat"]
+    lng = row["location.lng"]
+    name = row["name"]
+
+    folium.CircleMarker(
+        location=[lat, lng],
+        radius=3,
+        weight=0,
+        popup=name,
+        color="Blue",
+        fill_color="Blue",
+        fill_opacity=0.5,
+    ).add_to(m5)
+
+# Adding Xing Fu Tang Location
+for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
+    folium.CircleMarker(
+        location=[lat, lng],
+        radius=5,
+        weight=2,
+        popup="Xing Fu Tang @ {}".format(add),
+        color="Black",
+        fill_color="Red",
+        fill_opacity=1,
+    ).add_to(m5)
+
+m5.get_root().add_child(macro)  # Adding legend
+
+m5
 # %%
