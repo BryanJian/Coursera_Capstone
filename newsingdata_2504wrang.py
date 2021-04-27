@@ -1030,28 +1030,34 @@ cluster_geodf = gpd.GeoDataFrame(cluster_df, geometry="geometry")
 
 # %%
 # Colour map for Clusters
-color_step = cmp.StepColormap(
-    [
-        "#D3D3D3",
-        "#808080",
-        "#a6cee3",
-        "#1f78b4",
-        "#b2df8a",
-        "#33a02c",
-        "#fb9a99",
-        "#e31a1c",
-        "#fdbf6f",
-        "#ff7f00",
-        "#cab2d6",
-        "#6a3d9a",
-        "#ffff99",
-        "#b15928",
-    ],
-    vmin=1,
-    vmax=k_opt,
-    caption="Clusters",
-    index=list(range(1, k_opt + 1)),
-)
+color_list = [
+    "#D3D3D3",
+    "#808080",
+    "#a6cee3",
+    "#1f78b4",
+    "#b2df8a",
+    "#33a02c",
+    "#fb9a99",
+    "#e31a1c",
+    "#fdbf6f",
+    "#ff7f00",
+    "#cab2d6",
+    "#6a3d9a",
+    "#ffff99",
+    "#b15928",
+]  # Max 14 colours
+
+# Trim colour list to number of clusters
+if k_opt <= len(color_list):
+    color_list = color_list[:k_opt]
+else:
+    print(
+        "Warn: Number of clusters ({}) is larger than colours available ({})".format(
+            k_opt, len(color_list)
+        )
+    )  # Warning won't trigger so long kmax <= color_list
+
+color_step = cmp.StepColormap(color_list, vmin=1, vmax=k_opt, caption="Clusters",)
 
 cluster_dict = cluster_geodf.set_index("Subzone")["cluster"]
 
