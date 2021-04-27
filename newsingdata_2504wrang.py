@@ -8,7 +8,6 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import pandas as pd
 import requests
-import seaborn as sns
 from branca.element import MacroElement, Template
 from bs4 import BeautifulSoup
 from folium.plugins import HeatMap
@@ -21,7 +20,7 @@ from shapely.geometry.collection import GeometryCollection
 from shapely.geometry.multipolygon import MultiPolygon
 from sklearn.cluster import KMeans
 from sklearn.impute import KNNImputer
-from sklearn.metrics import cluster, silhouette_score
+from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
 # %%
@@ -324,6 +323,8 @@ for add in xft_add:
     xft_lat.append(location.latitude)
     xft_lng.append(location.longitude)
 
+xft_add
+
 # %%
 # Loading Foursquare credentials
 get_ipython().run_line_magic("load_ext", "dotenv")
@@ -625,12 +626,6 @@ pt_df.columns = [
 pt_df["Planning Area"] = pt_df["Planning Area"].str.upper()
 pt_df["Subzone"] = pt_df["Subzone"].str.upper()
 
-# Selecting data for Population range 20 to 44
-# pt_df = pt_df[
-#     pt_df["Age Group"].str.contains("20_to_24|25_to_29|30_to_34|35_to_39|40_to_44")
-#     == True
-# ]
-
 # %%
 # Setting Type of Dwelling into Dwelling Index
 # https://www.mortgagesupermart.com.sg/resources/types-of-dwellings-properties
@@ -928,7 +923,6 @@ m4.get_root().add_child(bubble_macro)  # Adding legend
 m4
 # %%
 # Setting Population by Age Group by Subzone into sub_geodf
-age_df = pd.read_csv("ages_pop2020.csv")
 
 # NOTE Potential for performance improvements
 # age_ranges = list(pt_df["Age Group"].unique())
@@ -939,24 +933,26 @@ age_df = pd.read_csv("ages_pop2020.csv")
 #     age_list = []
 #     for subzone in sz_list:
 #         age_sum = pt_trim_df.loc[(pt_trim_df["Subzone"] == subzone) & (pt_trim_df["Age Group"] == age)]["Population"].sum()
-
 #         age_list.append((subzone, age_sum))
-
 #     age_df = age_df.merge(
 #         pd.DataFrame(age_list, columns=["Subzone", age]), how="left", on="Subzone"
 #     )
 
+# # Getting total population of target age group
+# age_df["pop_total20_44"] = age_df[['20_to_24','25_to_29', '30_to_34', '35_to_39', '40_to_44']].sum(axis=1)
 # age_df.to_csv("ages_pop2020.csv", index=False)
 
-sub_geodf = sub_geodf.merge(age_df, how="left", on="Subzone")
+age_df = pd.read_csv("ages_pop2020.csv")
+
 # %%
 # Preparing Data for Analysis
-# Duplicating DF
-cluster_df = copy.deepcopy(sub_geodf)
+cluster_df = sub_geodf.merge(age_df, how="left", on="Subzone")
 
 # Separating data info and data values
-cluster_info = cluster_df[["Subzone", "Planning Area", "geometry"]]
-cluster_val = cluster_df.drop(columns=["Subzone", "Planning Area", "geometry"])
+# Removing pop_total and pop_total20_44 to avoid multicollinearity
+info_cols = ["Subzone", "Planning Area", "geometry", "pop_total", "pop_total20_44"]
+cluster_info = cluster_df[info_cols]
+cluster_val = cluster_df.drop(columns=info_cols)
 
 # Example of NaN rows
 cluster_val.head(2)
@@ -1167,7 +1163,5 @@ m6.get_root().add_child(mrt_mall_macro)  # Adding legend
 m6
 # %%
 # Scoring each feature to get cluster score
-# Bubble Tea scoring
-
-
 # MRT/Mall scoring
+cluster_geodf["mrt_mall_score"]
