@@ -1,4 +1,6 @@
 # %%
+# Import libraries
+import math
 import os
 
 import branca.colormap as cmp
@@ -449,7 +451,7 @@ for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
 m.get_root().add_child(bubble_macro)
 
 # %%
-# MRT Station Location DF
+# MRT Station Location Dataframe
 # Credit: https://www.kaggle.com/yxlee245/singapore-train-station-coordinates?select=mrt_lrt_data.csv
 mrt_df = pd.read_csv("mrt_lrt_data.csv")
 mrt_df = mrt_df[mrt_df["type"] == "MRT"]  # Filtering out other station types
@@ -640,6 +642,28 @@ pt_df["Planning Area"] = pt_df["Planning Area"].str.upper()
 pt_df["Subzone"] = pt_df["Subzone"].str.upper()
 
 # %%
+# # Calculating Population by Age Group by Subzone
+# # NOTE Potential for performance improvements
+# age_ranges = list(pt_df["Age Group"].unique())
+# age_df = pd.DataFrame(sz_list, columns=["Subzone"])
+# pt_trim_df = pt_df[["Subzone", "Age Group", "Population"]]
+
+# for age in age_ranges:
+#     age_list = []
+#     for subzone in sz_list:
+#         age_sum = pt_trim_df.loc[(pt_trim_df["Subzone"] == subzone) & (pt_trim_df["Age Group"] == age)]["Population"].sum()
+#         age_list.append((subzone, age_sum))
+#     age_df = age_df.merge(
+#         pd.DataFrame(age_list, columns=["Subzone", age]), how="left", on="Subzone"
+#     )
+
+# # Getting total population of target age group
+# age_df["pop_total20_44"] = age_df[['20_to_24','25_to_29', '30_to_34', '35_to_39', '40_to_44']].sum(axis=1)
+# age_df.to_csv("ages_pop2020.csv", index=False)
+
+age_df = pd.read_csv("ages_pop2020.csv")
+
+# %%
 # Setting Type of Dwelling into Dwelling Index
 # https://www.mortgagesupermart.com.sg/resources/types-of-dwellings-properties
 tod_key = list(pt_df["Type of Dwelling"].unique())  # list of dwelling types
@@ -676,17 +700,23 @@ sub_geodf.rename(
     columns={"Dwelling Index": "dwell_idx", "Population": "pop_total"}, inplace=True
 )
 
+# Merging ages DataFrame with geoDataFrame
+# main_geodf = sub_geodf.merge(age_df, how="left", on="Subzone")
+main_geodf = sub_geodf.merge(
+    age_df[["Subzone", "pop_total20_44"]], how="left", on="Subzone"
+)
+
 # %%
-# Plotting Population Data
+# Plotting Population (25yo - 45yo) Data
 m2 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
 
 # Population Choropleth
 folium.Choropleth(
-    sub_geodf,
+    main_geodf,
     name="Population",
     legend_name="Population, 2020",
-    data=sub_geodf,
-    columns=["Subzone", "pop_total"],
+    data=main_geodf,
+    columns=["Subzone", "pop_total20_44"],
     key_on="feature.properties.Subzone",
     fill_color="Blues",
     fill_opacity=0.7,
@@ -695,13 +725,13 @@ folium.Choropleth(
 
 # Subzone Boundaries
 folium.GeoJson(
-    sub_geodf,
+    main_geodf,
     name="Subzone Borders",
     style_function=sub_style_function,
     highlight_function=highlight_function,
     tooltip=folium.GeoJsonTooltip(
-        fields=["Subzone", "Planning Area", "pop_total"],
-        aliases=["Subzone: ", "Planning Area: ", "Population: "],
+        fields=["Subzone", "Planning Area", "pop_total20_44"],
+        aliases=["Subzone: ", "Planning Area: ", "Population (25yo - 45yo): "],
         style=(
             "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
         ),
@@ -748,10 +778,10 @@ m3 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start
 
 # Dwelling Type Choropleth
 folium.Choropleth(
-    sub_geodf,
+    main_geodf,
     name="Average Dwelling Types",
     legend_name="Dwelling Index",
-    data=sub_geodf,
+    data=main_geodf,
     columns=["Subzone", "dwell_idx"],
     key_on="feature.properties.Subzone",
     fill_color="Greens",
@@ -761,7 +791,7 @@ folium.Choropleth(
 
 # Subzone Boundaries
 folium.GeoJson(
-    sub_geodf,
+    main_geodf,
     name="Subzone Borders",
     style_function=sub_style_function,
     highlight_function=highlight_function,
@@ -868,8 +898,8 @@ incdf_cs["median_inc"] = incdf_cs["med_inc_bracket"].map(brack_mid)
 incdf = incdf_cs[["Planning Area", "median_inc"]]
 geoinc = plan_geodf.merge(incdf, on="Planning Area", how="left")
 
-# Set median income into sub_geodf
-sub_geodf = sub_geodf.merge(incdf, on="Planning Area", how="left")
+# Set median income into main_geodf
+main_geodf = main_geodf.merge(incdf, on="Planning Area", how="left")
 
 # %%
 # Plotting Income Levels
@@ -892,7 +922,12 @@ folium.Choropleth(
 folium.GeoJson(
     geoinc,
     name="Planning Area Borders",
-    style_function=plan_style_function,
+    style_function=lambda x: {
+        "fillColor": "#00000000",
+        "color": "Black",
+        "fill": True,
+        "weight": 1,
+    },
     highlight_function=highlight_function,
     tooltip=folium.GeoJsonTooltip(
         fields=["Planning Area", "median_inc"],
@@ -934,48 +969,23 @@ for lat, lng, add in zip(xft_lat, xft_lng, xft_add):
 m4.get_root().add_child(bubble_macro)  # Adding legend
 
 m4
-# %%
-# Setting Population by Age Group by Subzone into sub_geodf
-
-# NOTE Potential for performance improvements
-# age_ranges = list(pt_df["Age Group"].unique())
-# age_df = pd.DataFrame(sz_list, columns=["Subzone"])
-# pt_trim_df = pt_df[["Subzone", "Age Group", "Population"]]
-
-# for age in age_ranges:
-#     age_list = []
-#     for subzone in sz_list:
-#         age_sum = pt_trim_df.loc[(pt_trim_df["Subzone"] == subzone) & (pt_trim_df["Age Group"] == age)]["Population"].sum()
-#         age_list.append((subzone, age_sum))
-#     age_df = age_df.merge(
-#         pd.DataFrame(age_list, columns=["Subzone", age]), how="left", on="Subzone"
-#     )
-
-# # Getting total population of target age group
-# age_df["pop_total20_44"] = age_df[['20_to_24','25_to_29', '30_to_34', '35_to_39', '40_to_44']].sum(axis=1)
-# age_df.to_csv("ages_pop2020.csv", index=False)
-
-age_df = pd.read_csv("ages_pop2020.csv")
 
 # %%
 # Preparing Data for Analysis
-# cluster_df = sub_geodf.merge(age_df, how="left", on="Subzone")
-cluster_df = sub_geodf.merge(
-    age_df[["Subzone", "pop_total20_44"]], how="left", on="Subzone"
-)
-
 # Separating data info and data values
-# Removing pop_total to avoid multicollinearity
-info_cols = ["Subzone", "Planning Area", "geometry", "pop_total"]
-cluster_info = cluster_df[info_cols]
-cluster_val = cluster_df.drop(columns=info_cols)
+info_cols = ["Subzone", "Planning Area", "geometry"]
+info_cols_pop = info_cols + [
+    "pop_total"
+]  # Removing pop_total to avoid multicollinearity with pop_total20_44
+cluster_info = main_geodf[info_cols_pop]
+cluster_val = main_geodf.drop(columns=info_cols)
 
 # %%
-# Cleaning up NaN Values in dataframe
 # Example of NaN rows
 cluster_val.head(2)
 
 # %%
+# Cleaning up NaN Values in dataframe
 # For rows with only 0 or NaN cells
 # We replace NaN with 0
 for index, row in cluster_val.iterrows():
@@ -1000,7 +1010,7 @@ cluster_std
 # %%
 # Evaluating K-means to choose K value
 kmin = 4
-kmax = 14
+kmax = 13
 k_list = list(range(kmin, kmax + 1))
 elb = []
 sil = []
@@ -1059,7 +1069,9 @@ color_list = [
     "#6a3d9a",
     "#ffff99",
     "#b15928",
-]  # Max 14 colours
+    "#FFFFFF",
+    "#000000",
+]
 
 # Trim colour list to number of clusters
 if k_opt <= len(color_list):
@@ -1188,8 +1200,13 @@ m7
 # %%
 # Scoring each feature to get cluster score
 # MRT/Mall weighted scoring
+bt_per_mrt = int(input("Enter your estimate of # of Bubble Tea Shop per MRT Station: "))
+bt_per_mall = int(
+    input("Enter your estimate of # of Bubble Tea Shop per Shopping Mall: ")
+)
+
 cluster_geodf["mrt_mall_score"] = (
-    cluster_geodf["mrt_count"] * 5 + cluster_geodf["mall_count"] * 5
+    cluster_geodf["mrt_count"] * bt_per_mrt + cluster_geodf["mall_count"] * bt_per_mall
 )
 
 # Bubbled Tea Shop weighted scoring
@@ -1205,3 +1222,52 @@ cluster_geodf["subzone_score"] = (
 cluster_geodf.head()
 
 # %%
+# Getting cluster group with highest subzone_score
+results_df = cluster_geodf.drop(columns=info_cols)
+results_df = results_df.groupby(["cluster"]).mean()
+results_df = results_df.sort_values(by="subzone_score", ascending=False)
+top_cluster = results_df.index[0]
+print(
+    "Cluster {} has the highest subzone score of {:.2f}".format(
+        top_cluster, results_df.loc[top_cluster, "subzone_score"]
+    )
+)
+results_df.head(k_opt)  # Show all clusters
+
+# %%
+# EDA of results_df
+top_cluster_df = cluster_geodf[cluster_geodf["cluster"] == top_cluster].drop(
+    columns=info_cols
+)
+top_cluster_df.describe()
+
+# %%
+# Credit: https://github.com/kyokin78/Coursera_Capstone/blob/project/CapstoneProject_OpenCinemaInMontreal.ipynb
+def draw_barchart(dataframe, highlight_index):
+    fig = plt.figure(figsize=(18, 15))
+    n_rows = n_cols = math.ceil(math.sqrt(dataframe.columns.size))
+    for i, col in enumerate(dataframe.columns):
+        df = dataframe[[col]].sort_values(by=col)
+        ax = fig.add_subplot(n_rows, n_cols, i + 1)
+        df.plot.barh(ax=ax)
+        pos = df.index.get_loc(highlight_index)
+        ax.patches[pos].set_facecolor("#aa3333")
+        ax.set_title(col)
+        ax.get_legend().remove()
+    # fig.tight_layout()
+    plt.show()
+
+
+draw_barchart(
+    results_df[
+        "pop_total20_44",
+        "median_inc",
+        "dwell_idx",
+        "mrt_count",
+        "mall_count",
+        "other_boba_count",
+        "xft_boba_count",
+    ],
+    top_cluster,
+)
+
