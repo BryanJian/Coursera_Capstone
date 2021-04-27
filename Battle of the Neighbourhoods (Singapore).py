@@ -1452,5 +1452,3 @@ plan_border.add_to(m8)
 m8.get_root().add_child(selected_sub_macro)  # Adding legend
 
 m8
-
-# %%
