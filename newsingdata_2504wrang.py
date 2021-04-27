@@ -270,6 +270,100 @@ mrt_mall_template = """
 mrt_mall_macro = MacroElement()
 mrt_mall_macro._template = Template(mrt_mall_template)
 
+# Selected Subzones Legend
+selected_sub_template = """
+{% macro html(this, kwargs) %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jQuery UI Draggable - Default functionality</title>
+  <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+  <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+  
+  <script>
+  $( function() {
+    $( "#maplegend" ).draggable({
+                    start: function (event, ui) {
+                        $(this).css({
+                            right: "auto",
+                            top: "auto",
+                            bottom: "auto"
+                        });
+                    }
+                });
+});
+
+  </script>
+</head>
+<body>
+
+ 
+<div id='maplegend' class='maplegend' 
+    style='position: absolute; z-index:9999; border:0px solid grey; background-color:rgba(255, 255, 255, 0.8);
+     border-radius:1px; padding: 10px; font-size:12px; right: 20px; bottom: 20px;'>
+     
+<div class='legend-title'>Legend</div>
+<div class='legend-scale'>
+  <ul class='legend-labels'>
+    <li><span style='background:#0E7D74;opacity:0.7;'></span>Top 5 Select Subzones</li>
+    <li><span style='background:#AEDE74;opacity:0.7;'></span>Selected Subzones</li>
+    
+  </ul>
+</div>
+</div>
+ 
+</body>
+</html>
+
+<style type='text/css'>
+  .maplegend .legend-title {
+    text-align: left;
+    margin-bottom: 5px;
+    font-weight: bold;
+    font-size: 90%;
+    }
+  .maplegend .legend-scale ul {
+    margin: 0;
+    margin-bottom: 5px;
+    padding: 0;
+    float: left;
+    list-style: none;
+    }
+  .maplegend .legend-scale ul li {
+    font-size: 80%;
+    list-style: none;
+    margin-left: 0;
+    line-height: 18px;
+    margin-bottom: 2px;
+    }
+  .maplegend ul.legend-labels li span {
+    display: block;
+    float: left;
+    height: 16px;
+    width: 16px;
+    margin-right: 5px;
+    margin-left: 0;
+    border: 0px solid #999;
+    }
+  .maplegend .legend-source {
+    font-size: 80%;
+    color: #777;
+    clear: both;
+    }
+  .maplegend a {
+    color: #777;
+    }
+</style>
+{% endmacro %}"""
+
+selected_sub_macro = MacroElement()
+selected_sub_macro._template = Template(selected_sub_template)
+
 # %%
 # Plotting Planning Area and Subzones on Map
 m = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
@@ -1235,13 +1329,14 @@ print(
 results_df.head(k_opt)  # Show all clusters
 
 # %%
-# EDA of results_df
+# Describe Top Cluster
 top_cluster_df = cluster_geodf[cluster_geodf["cluster"] == top_cluster].drop(
     columns=info_cols
 )
 top_cluster_df.describe()
 
 # %%
+# Draw Barchart function
 # Credit: https://github.com/kyokin78/Coursera_Capstone/blob/project/CapstoneProject_OpenCinemaInMontreal.ipynb
 def draw_barchart(dataframe, highlight_index):
     fig = plt.figure(figsize=(18, 15))
@@ -1249,25 +1344,113 @@ def draw_barchart(dataframe, highlight_index):
     for i, col in enumerate(dataframe.columns):
         df = dataframe[[col]].sort_values(by=col)
         ax = fig.add_subplot(n_rows, n_cols, i + 1)
-        df.plot.barh(ax=ax)
+        df.plot.barh(ax=ax, color="#ADC3B8")
         pos = df.index.get_loc(highlight_index)
-        ax.patches[pos].set_facecolor("#aa3333")
+        ax.patches[pos].set_facecolor("#0E7D74")
         ax.set_title(col)
         ax.get_legend().remove()
     # fig.tight_layout()
     plt.show()
 
 
+# %%
+# EDA of Top Cluster
 draw_barchart(
     results_df[
-        "pop_total20_44",
-        "median_inc",
-        "dwell_idx",
-        "mrt_count",
-        "mall_count",
-        "other_boba_count",
-        "xft_boba_count",
+        [
+            "pop_total20_44",
+            "median_inc",
+            "dwell_idx",
+            "mrt_count",
+            "mall_count",
+            "other_boba_count",
+            "xft_boba_count",
+        ]
     ],
     top_cluster,
 )
 
+# %%
+# Select the Subzones in top cluster
+select_sub_geodf = cluster_geodf[cluster_geodf["cluster"] == top_cluster].sort_values(
+    ["subzone_score"], ascending=False
+)
+top5_sub_geodf = select_sub_geodf.head(5)
+
+# Selecting the rest of the rows in select_sub_geodf that isn't top 5
+# This allow better UX for highlight_function
+other_select_sub_geodf = select_sub_geodf[
+    ~select_sub_geodf.isin(top5_sub_geodf)
+].dropna()
+# %%
+# Plot selected Subzones on map
+m8 = folium.Map(location=[1.3521, 103.8198], tiles="cartodbpositron", zoom_start=11)
+
+# All Subzones
+folium.GeoJson(
+    cluster_geodf,
+    name="Other Clusters",
+    style_function=lambda x: {
+        "fillColor": "White",
+        "color": "Grey",
+        "fillOpacity": 0.1,
+        "weight": 0.7,
+    },
+    highlight_function=highlight_function,
+    tooltip=folium.GeoJsonTooltip(
+        fields=["Subzone", "Planning Area", "cluster", "subzone_score"],
+        aliases=["Subzone: ", "Planning Area: ", "Cluster: ", "Subzone Score: "],
+        style=(
+            "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
+        ),
+    ),
+).add_to(m8)
+
+# All selected Subzone Boundaries
+folium.GeoJson(
+    other_select_sub_geodf,
+    name="Cluster {} Subzone Borders".format(top_cluster),
+    style_function=lambda x: {
+        "fillColor": "#AEDE74",
+        "color": "Grey",
+        "fillOpacity": 0.8,
+        "weight": 0.7,
+    },
+    highlight_function=highlight_function,
+    tooltip=folium.GeoJsonTooltip(
+        fields=["Subzone", "Planning Area", "cluster", "subzone_score"],
+        aliases=["Subzone: ", "Planning Area: ", "Cluster: ", "Subzone Score: "],
+        style=(
+            "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
+        ),
+    ),
+).add_to(m8)
+
+# Top 5 Subzone Boundaries
+folium.GeoJson(
+    top5_sub_geodf,
+    name="Cluster {} Subzone Borders".format(top_cluster),
+    style_function=lambda x: {
+        "fillColor": "#0E7D74",
+        "color": "Grey",
+        "fillOpacity": 0.8,
+        "weight": 0.7,
+    },
+    highlight_function=highlight_function,
+    tooltip=folium.GeoJsonTooltip(
+        fields=["Subzone", "Planning Area", "cluster", "subzone_score"],
+        aliases=["Subzone: ", "Planning Area: ", "Cluster: ", "Subzone Score: "],
+        style=(
+            "background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;"
+        ),
+    ),
+).add_to(m8)
+
+# Planning Area Boundaries
+plan_border.add_to(m8)
+
+m8.get_root().add_child(selected_sub_macro)  # Adding legend
+
+m8
+
+# %%
